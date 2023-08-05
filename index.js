@@ -15,29 +15,61 @@ mongoose.connect("mongodb://localhost:27017/ywait_stg_insta_gcc", {
 // app.use(bodyParser.json());
 
 // Implement the API to fetch booking details on a particular date
-app.get("/bookings", async (req, res) => {
+app.get("/appointments", async (req, res) => {
   try {
     const { user_id, business_id, date } = req.query;
     const db = mongoose.connection.db;
-    const bookingsCollection = db.collection('bookings');
+
+    // validation for user & business
+    const admin = await db.collection("admins").findOne({
+      _id: new mongoose.Types.ObjectId(user_id),
+      business_id: new mongoose.Types.ObjectId(business_id),
+      is_blocked: false,
+      status: "ACTIVE"
+    });
+    if(!admin) {
+      res.status(400).json({ message: "Invalid User or Business" });
+    }
 
     const startDate = new Date(date);
     startDate.setUTCHours(0, 0, 0, 0);
     const endDate = new Date(date);
     endDate.setUTCHours(23, 59, 59, 999);
 
-    const bookings = await bookingsCollection.find({
-      customer_id: new mongoose.Types.ObjectId(user_id),
-      business_id: new mongoose.Types.ObjectId(business_id),
-      dateFrom: { $gte: startDate, $lte: endDate },
-    }).toArray();
+    // find bookings
+    const bookings = await db.collection("bookings")
+      .find({
+        business_id: new mongoose.Types.ObjectId(business_id),
+        dateFrom: { $gte: startDate, $lte: endDate },
+      })
+      .toArray();
+
+    if (!bookings) {
+      res.status(400).json({ message: "no bookings on the given date" });
+    }
 
     const totalBookings = bookings.length;
-    const newCustomersCount = bookings.filter(booking => booking.isNoPreference).length;
-    const walkinCustomersCount = bookings.filter(booking => booking.services.length === 0).length;
-    const cancelledBookingsCount = bookings.filter(booking => booking.status === 'CANCELLED').length;
-    const noShowBookingsCount = bookings.filter(booking => booking.status === 'NOSHOW').length;
-    // You might have a separate schema for consultants, and you can query their availability based on the date.
+
+    const newCustomersCount = await db.collection("customers")
+      .countDocuments({
+        business_id: new mongoose.Types.ObjectId(business_id),
+        member_since: { $gte: startDate, $lte: endDate },
+      });
+      
+    const walkinCustomersCount = [];
+
+    const cancelledBookingsCount = bookings.filter(
+      (booking) => booking.status === "CANCELLED"
+    ).length;
+    const noShowBookingsCount = bookings.filter(
+      (booking) => booking.status === "NOSHOW"
+    ).length;
+    const availableConsultants = await db.collection("admins").countDocuments({
+      business_id: new mongoose.Types.ObjectId(business_id),
+      is_blocked: false,
+      status: "ACTIVE",
+      availability: "AVAILABLE"
+    });
 
     res.json({
       totalBookings,
@@ -45,9 +77,8 @@ app.get("/bookings", async (req, res) => {
       walkinCustomersCount,
       cancelledBookingsCount,
       noShowBookingsCount,
-      availableConsultants: [], // Implement your logic here to get available consultants.
+      availableConsultants, // Implement your logic here to get available consultants.
     });
-
   } catch (error) {
     console.error("Error fetching bookings:", error);
     res.status(500).json({ error: "Internal Server Error" });
