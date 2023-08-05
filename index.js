@@ -53,7 +53,10 @@ app.get("/appointments", async (req, res) => {
         member_since: { $gte: startDate, $lte: endDate },
       });
       
-    const walkinCustomersCount = [];
+    const walkinCustomersCount = await db.collection("waitlists").countDocuments({
+      business_id: new mongoose.Types.ObjectId(business_id),
+      dateFrom: { $gte: startDate, $lte: endDate },
+    })
 
     const cancelledBookingsCount = bookings.filter(
       (booking) => booking.status === "CANCELLED"
